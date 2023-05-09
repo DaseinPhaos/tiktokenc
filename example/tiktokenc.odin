@@ -51,19 +51,22 @@ unload_dynamic_lib :: proc(dyn_lib: Tokenizerc) {
 }
 
 main :: proc() {
-    tc, ok := load_dynamic_lib("./tiktokenc.dll")
-    assert(ok)
-    tk := tc.create_tokenizer()
-    defer tc.destroy_tokenizer(tk)
-    story := "Once upon a time...Hey there!!!~~"
-    count := tc.count_tokens(tk, strings.ptr_from_string(story), len(story))
-    encoded_len := uint(0)
-    p_encoded := tc.encode(tk, strings.ptr_from_string(story), len(story), &encoded_len)
-    defer tc.destroy_encoded(p_encoded, encoded_len)
-    assert(encoded_len == count)
-    decoded_len := uint(0)
-    p_decoded := tc.decode(tk, p_encoded, encoded_len, &decoded_len)
-    decoded_str := strings.string_from_ptr(p_decoded, int(decoded_len))
-    assert(decoded_str == story)
-    fmt.printf("done! token count: %d\n", count)
+    { // test
+        tc, ok := load_dynamic_lib("./tiktokenc.dll")
+        assert(ok)
+        tk := tc.create_tokenizer()
+        defer tc.destroy_tokenizer(tk)
+        story := "Once upon a time...Hey there!!!~~"
+        count := tc.count_tokens(tk, strings.ptr_from_string(story), len(story))
+        encoded_len := uint(0)
+        p_encoded := tc.encode(tk, strings.ptr_from_string(story), len(story), &encoded_len)
+        defer tc.destroy_encoded(p_encoded, encoded_len)
+        assert(encoded_len == count)
+        decoded_len := uint(0)
+        p_decoded := tc.decode(tk, p_encoded, encoded_len, &decoded_len)
+        decoded_str := strings.string_from_ptr(p_decoded, int(decoded_len))
+        defer tc.destroy_decoded(p_decoded, decoded_len)
+        assert(decoded_str == story)
+    }
+    fmt.printf("test done!")
 }
