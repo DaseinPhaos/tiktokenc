@@ -8,6 +8,7 @@ use fancy_regex::{Regex, Error};
 use rustc_hash::FxHashMap as HashMap;
 
 use std::mem::transmute;
+use std::mem::forget;
 use std::ptr;
 use std::slice;
 use std::str;
@@ -530,12 +531,12 @@ pub extern "C" fn create_tokenizer() -> *mut CoreBPE {
 }
 
 #[no_mangle]
-pub extern "C" fn count_tokens(ptr:*mut CoreBPE, str_ptr: *const u8, str_len: usize) -> usize {
+pub extern "C" fn count_tokens(p_core:*mut CoreBPE, p_str: *const u8, str_len: usize) -> usize {
     let s = unsafe {
-        let slice = slice::from_raw_parts(str_ptr, str_len);
+        let slice = slice::from_raw_parts(p_str, str_len);
         str::from_utf8(slice).unwrap()
     };
-    let tokenizer = unsafe {&mut *ptr};
+    let tokenizer = unsafe {&mut *p_core};
     //let encoding = tokenizer._encode_ordinary_native(s);
     let encoding = tokenizer._encode_native(s, &HashSet::new()).0;
     //println!("{:?}", encoding);
@@ -544,8 +545,52 @@ pub extern "C" fn count_tokens(ptr:*mut CoreBPE, str_ptr: *const u8, str_len: us
 }
 
 #[no_mangle]
-pub extern "C" fn destroy_tokenizer(ptr: *mut CoreBPE) {
-    let _counter: Box<CoreBPE> = unsafe{ transmute(ptr) };
+pub extern "C" fn encode(p_core:*mut CoreBPE, p_str: *const u8, str_len: usize, p_encoded_len: *mut usize) -> *mut usize {
+    let s = unsafe {
+        let slice = slice::from_raw_parts(p_str, str_len);
+        str::from_utf8(slice).unwrap()
+    };
+    let tokenizer = unsafe {&mut *p_core};
+    //let encoding = tokenizer._encode_ordinary_native(s);
+    let mut vec = tokenizer._encode_native(s, &HashSet::new()).0;
+    vec.shrink_to_fit();
+    assert!(vec.len() == vec.capacity());
+    let ptr = vec.as_mut_ptr();
+    let len = vec.len();
+    forget(vec); // prevent deallocation in Rust
+    unsafe {*p_encoded_len = len;}
+    ptr
+}
+
+#[no_mangle]
+pub extern "C" fn destroy_encoded(ptr: *mut usize, len: usize) {
+    let _vec: Vec<usize> = unsafe {Vec::from_raw_parts(ptr, len, len)};
+    // Drop
+}
+
+#[no_mangle]
+pub extern "C" fn decode(p_core:*mut CoreBPE, p_encoded: *const usize, encoded_len: usize, p_str_len: *mut usize) -> *mut u8 {
+    let slice = unsafe {slice::from_raw_parts(p_encoded, encoded_len)};
+    let tokenizer = unsafe {&mut *p_core};
+    let mut vec = tokenizer._decode_native(slice);
+    vec.shrink_to_fit();
+    assert!(vec.len() == vec.capacity());
+    let ptr = vec.as_mut_ptr();
+    let len = vec.len();
+    forget(vec); // prevent deallocation in Rust
+    unsafe {*p_str_len = len;}
+    ptr
+}
+
+#[no_mangle]
+pub extern "C" fn destroy_decoded(ptr: *mut u8, len: usize) {
+    let _vec: Vec<u8> = unsafe {Vec::from_raw_parts(ptr, len, len)};
+    // Drop
+}
+
+#[no_mangle]
+pub extern "C" fn destroy_tokenizer(p_core: *mut CoreBPE) {
+    let _counter: Box<CoreBPE> = unsafe{ transmute(p_core) };
     // Drop
 }
 
@@ -573,8 +618,23 @@ mod tests {
         let len = story.len();
         let token_count = count_tokens(tokenizer, ptr, len);
         println!("token count: {:?}", token_count);
-        destroy_tokenizer(tokenizer);
         assert_eq!(token_count, 8);
+        let decoded_str = unsafe {
+            let mut encoded_len : usize = 0;
+            let p_encoded = encode(tokenizer, ptr, len, &mut encoded_len);
+            assert_eq!(encoded_len, 8);
+
+            let mut decoded_len : usize = 0;
+            let p_decoded = decode(tokenizer, p_encoded, encoded_len, &mut decoded_len);
+            assert_eq!(decoded_len, len);
+
+            destroy_encoded(p_encoded, encoded_len);
+
+            let slice = slice::from_raw_parts(p_decoded, decoded_len); // TODO: p_decoded leaked
+            str::from_utf8(slice).unwrap()
+        };
+        destroy_tokenizer(tokenizer);
+        assert_eq!(decoded_str, story);
         // cargo test -- --nocapture
         // cargo build --release --target x86_64-pc-windows-msvc
     }

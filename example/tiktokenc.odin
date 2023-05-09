@@ -12,7 +12,11 @@ TokenizercHandle :: distinct rawptr
 Tokenizerc :: struct {
     _lib : dynlib.Library,
     create_tokenizer : proc "c"() -> TokenizercHandle,
-    count_tokens : proc "c"(tokenizer: TokenizercHandle, str_ptr: ^u8, str_len: uint) -> uint,
+    count_tokens : proc "c"(tokenizer: TokenizercHandle, p_str: ^u8, str_len: uint) -> uint,
+    encode : proc "c"(tokenizer: TokenizercHandle, p_str: ^u8, str_len: uint, p_encoded_len: ^uint) -> [^]uint,
+    destroy_encoded : proc "c"(ptr: [^]uint, len: uint),
+    decode : proc "c"(tokenizer: TokenizercHandle, p_encoded: ^uint, encoded_len: uint, p_decoded_len: ^uint) -> [^]u8,
+    destroy_decoded : proc "c"(ptr: [^]u8, len: uint),
     destroy_tokenizer : proc "c"(tokenizer: TokenizercHandle),
 }
 
@@ -50,8 +54,16 @@ main :: proc() {
     tc, ok := load_dynamic_lib("./tiktokenc.dll")
     assert(ok)
     tk := tc.create_tokenizer()
+    defer tc.destroy_tokenizer(tk)
     story := "Once upon a time...Hey there!!!~~"
     count := tc.count_tokens(tk, strings.ptr_from_string(story), len(story))
-    tc.destroy_tokenizer(tk)
-    fmt.printf("count: %d\n", count)
+    encoded_len := uint(0)
+    p_encoded := tc.encode(tk, strings.ptr_from_string(story), len(story), &encoded_len)
+    defer tc.destroy_encoded(p_encoded, encoded_len)
+    assert(encoded_len == count)
+    decoded_len := uint(0)
+    p_decoded := tc.decode(tk, p_encoded, encoded_len, &decoded_len)
+    decoded_str := strings.string_from_ptr(p_decoded, int(decoded_len))
+    assert(decoded_str == story)
+    fmt.printf("done! token count: %d\n", count)
 }
